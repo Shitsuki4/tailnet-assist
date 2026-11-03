@@ -1,0 +1,4 @@
+# Target scripts are downloaded and SHA256-checked byte for byte: never convert line endings.
+target/** -text
+*.sh text eol=lf
+*.py text eol=lf

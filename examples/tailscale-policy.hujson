@@ -1,0 +1,24 @@
+// Tailscale access rules for tailnet-assist (paste into the admin console: Access controls).
+// Only devices you own can reach target machines, and only on SSH (tcp:22).
+// Replace you@example.com with your login. Tag targets with tag:assist-target
+// (admin console -> Machines -> ... -> Edit ACL tags) or with
+// `tailscale up --advertise-tags=tag:assist-target` on the target.
+{
+  "tagOwners": {
+    "tag:assist-target": ["you@example.com"],
+  },
+  "grants": [
+    // operator devices -> targets, SSH only
+    {
+      "src": ["you@example.com"],
+      "dst": ["tag:assist-target"],
+      "ip":  ["tcp:22"],
+    },
+    // keep your other devices working as before (remove if you want a stricter tailnet)
+    {
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self"],
+      "ip":  ["*"],
+    },
+  ],
+}

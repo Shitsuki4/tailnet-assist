@@ -1,0 +1,28 @@
+# Example ~/.codex/config.toml entries for tailnet-assist.
+# Generate the exact block for your target with:
+#   python3 controller/tna.py mcp-config <name> --format toml
+
+# Codex runs `ssh ... cua-driver mcp` as a stdio MCP server.
+[mcp_servers.cua-desk-pc]
+command = "ssh"
+args = [
+  "-F", "/home/me/.tailnet-assist/ssh_config", "-T", "tna-desk-pc",
+  "cd /d \"C:\\Users\\alice\\AppData\\Local\\Programs\\Cua\\cua-driver\\bin\" && cua-driver.exe mcp --socket \\\\.\\pipe\\cua-driver",
+]
+startup_timeout_sec = 45   # SSH over a relayed tailnet can take more than the 10 s default
+tool_timeout_sec = 120
+
+# Linux target: the socket path comes from the TNA1 line
+# [mcp_servers.cua-lab-linux]
+# command = "ssh"
+# args = ["-F", "/home/me/.tailnet-assist/ssh_config", "-T", "tna-lab-linux",
+#         "/home/bob/.local/bin/cua-driver mcp --socket /home/bob/.cache/cua-driver/cua-driver.sock"]
+
+# macOS target: cua-driver mcp proxies to CuaDriver.app by itself
+# [mcp_servers.cua-mac]
+# command = "ssh"
+# args = ["-F", "/home/me/.tailnet-assist/ssh_config", "-T", "tna-mac", "/Users/carol/.local/bin/cua-driver mcp"]
+
+# Let Codex's own shell reach the target with ssh (the default sandbox blocks network).
+[sandbox_workspace_write]
+network_access = true

@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python controller tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Unix target tests
+        if: runner.os != 'Windows'
+        run: bash tests/target_unix_unit.sh
+      - name: Windows target tests (PowerShell 7)
+        shell: pwsh
+        run: ./tests/target_windows_unit.ps1 -InfoOut win-info.txt
+      - name: Windows target tests (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\target_windows_unit.ps1
+      - name: Windows info line decodes in the controller
+        run: python -c "import sys; sys.path.insert(0,'controller'); import tna; print(tna.decode_info(open('win-info.txt').read()))"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -S warning target/unix/tna-target.sh tests/target_unix_unit.sh tests/e2e/linux_full.sh
+      - name: ruff
+        run: pipx run ruff check --select E,F,W,B --line-length 160 controller tests
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path target/windows/tna-target.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost,PSUseShouldProcessForStateChangingFunctions,PSUseApprovedVerbs,PSUseSingularNouns,PSAvoidUsingPositionalParameters,PSReviewUnusedParameter
+          $r | Format-Table -AutoSize | Out-String -Width 200
+          if ($r) { exit 1 }
+
+  linux-e2e:
+    name: linux e2e (real desktop over SSH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desktop + sshd packages
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb openbox xterm xfonts-base dbus-x11 at-spi2-core openssh-server
+      - name: Install Cua Driver (official installer)
+        run: curl -fsSL https://cua.ai/driver/install.sh | CUA_DRIVER_NO_MODIFY_PATH=1 bash
+      - name: End-to-end
+        run: bash tests/e2e/linux_full.sh
+
+  windows-ssh:
+    name: windows target setup + SSH (no Tailscale)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Controller key
+        shell: pwsh
+        run: python controller/tna.py init
+      - name: Target setup (OpenSSH server + key; Tailscale and Cua skipped)
+        shell: pwsh
+        run: |
+          $pub = Get-Content "$env:USERPROFILE\.tailnet-assist\id_ed25519.pub"
+          powershell -NoProfile -ExecutionPolicy Bypass -File target\windows\tna-target.ps1 setup -OperatorKey $pub -Expires 2h -Label ci -Yes -SkipTailscale -SkipCua -HostOverride 127.0.0.1 -AllowFrom '127.0.0.1,::1' -Name ci-win
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content "$env:LOCALAPPDATA\tailnet-assist\connection-info.txt"
+      - name: Key file and firewall checks
+        shell: pwsh
+        run: |
+          $f = "$env:ProgramData\ssh\administrators_authorized_keys"
+          $line = Get-Content $f | Where-Object { $_ -match ' tna:ci:[0-9a-f]{8}$' }
+          $line
+          if ($line -notmatch '^restrict,pty,from="127.0.0.1,::1"') { throw 'key line options wrong' }
+          icacls $f
+          Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP','tna-sshd-tailnet' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter | Format-List
+          (Get-Item "$env:WINDIR\System32\OpenSSH\sshd.exe").VersionInfo.ProductVersion
+      - name: Controller connects and runs commands
+        shell: pwsh
+        run: |
+          python controller/tna.py add (Get-Content "$env:LOCALAPPDATA\tailnet-assist\connection-info.txt")
+          $out = python controller/tna.py ssh ci-win -- whoami
+          "whoami over SSH: $out"
+          if ($LASTEXITCODE -ne 0 -or -not $out) { throw 'ssh failed' }
+          $ps = python controller/tna.py ssh ci-win -- 'powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"'
+          "powershell over SSH: $ps"
+          python controller/tna.py mcp-config ci-win --format toml
+      - name: Status, revoke, then refused
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File target\windows\tna-target.ps1 status
+          powershell -NoProfile -ExecutionPolicy Bypass -File target\windows\tna-target.ps1 revoke
+          python controller/tna.py ssh ci-win -- whoami
+          if ($LASTEXITCODE -eq 0) { throw 'login still works after revoke' }
+          'login refused after revoke'
+          exit 0
+      - name: Uninstall restores sshd / firewall
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File target\windows\tna-target.ps1 uninstall -Yes
+          Get-Service sshd | Format-List Name,Status,StartType
