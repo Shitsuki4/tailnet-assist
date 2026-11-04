@@ -137,8 +137,10 @@ function Get-ShellKind([string]$DefaultShell) {
 }
 
 function Test-ExpirySupported([string]$SshdVersion) {
-    # expiry-time in authorized_keys needs OpenSSH 8.2+
-    try { $v = [version](($SshdVersion -split '[^0-9.]')[0]) } catch { return $false }
+    # expiry-time in authorized_keys needs OpenSSH 8.2+.
+    # ProductVersion is either numeric ('9.5.4.1') or text ('OpenSSH_9.5p2 for Windows').
+    if ($SshdVersion -notmatch '(\d+)\.(\d+)') { return $false }
+    try { $v = [version]"$($Matches[1]).$($Matches[2])" } catch { return $false }
     return ($v -ge [version]'8.2')
 }
 

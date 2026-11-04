@@ -54,6 +54,11 @@ Check 'shell pwsh' ((Get-ShellKind 'C:\Program Files\PowerShell\7\pwsh.exe') -eq
 Check 'expiry supported 9.5' (Test-ExpirySupported '9.5.4.1')
 Check 'expiry unsupported 8.1' (-not (Test-ExpirySupported '8.1.0.1'))
 Check 'expiry unsupported empty' (-not (Test-ExpirySupported ''))
+Check 'expiry supported OpenSSH_9.5p2 text' (Test-ExpirySupported 'OpenSSH_9.5p2 for Windows')
+Check 'expiry supported OpenSSH_8.2p1 text' (Test-ExpirySupported 'OpenSSH_8.2p1')
+Check 'expiry unsupported OpenSSH_7.7p1 text' (-not (Test-ExpirySupported 'OpenSSH_7.7p1 for Windows'))
+Check 'expiry unsupported 8.1.0.0p1-Beta' (-not (Test-ExpirySupported '8.1.0.0p1-Beta'))
+Check 'expiry unsupported garbage' (-not (Test-ExpirySupported 'unknown'))
 
 $info = @{ v = 1; name = 'desk-pc'; os = 'windows'; user = 'Alice Wang'; host = '100.101.102.103'; ip = '100.101.102.103'
     hostkey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOd7kmdX0s1yX6WbqcvJ6oFqRk0zjYH7d7nU2c8gk1nL'; shell = 'cmd'

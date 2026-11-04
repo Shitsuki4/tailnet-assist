@@ -94,7 +94,11 @@ jobs:
           $f = "$env:ProgramData\ssh\administrators_authorized_keys"
           $line = Get-Content $f | Where-Object { $_ -match ' tna:ci:[0-9a-f]{8}$' }
           $line
-          if ($line -notmatch '^restrict,pty,from="127.0.0.1,::1"') { throw 'key line options wrong' }
+          if ($line -notmatch '^restrict,pty,from="127.0.0.1,::1",expiry-time="[0-9]{12}Z" ') { throw 'key line options wrong (restrict/from/expiry-time)' }
+          $ci = (Get-Content "$env:LOCALAPPDATA\tailnet-assist\connection-info.txt")
+          $exp = python -c "import sys; sys.path.insert(0,'controller'); import tna; print(tna.decode_info(sys.argv[1])['expires'])" $ci
+          "connection info expires: $exp"
+          if ($exp -notmatch '^[0-9]{12}Z$') { throw 'connection info has no expiry' }
           icacls $f
           Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP','tna-sshd-tailnet' -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter | Format-List
           (Get-Item "$env:WINDIR\System32\OpenSSH\sshd.exe").VersionInfo.ProductVersion
@@ -107,7 +111,11 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $out) { throw 'ssh failed' }
           $ps = python controller/tna.py ssh ci-win -- 'powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"'
           "powershell over SSH: $ps"
-          python controller/tna.py mcp-config ci-win --format toml
+          # Cua was skipped (-SkipCua), so mcp-config must refuse with a clear error (exit 2), not crash.
+          $err = python controller/tna.py mcp-config ci-win --format toml 2>&1 | Out-String
+          "mcp-config without Cua: $err"
+          if ($LASTEXITCODE -ne 2 -or $err -notmatch 'Cua Driver') { throw 'mcp-config should refuse without a Cua path' }
+          exit 0
       - name: Status, revoke, then refused
         shell: pwsh
         run: |
