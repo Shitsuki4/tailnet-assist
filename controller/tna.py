@@ -519,6 +519,7 @@ def cmd_remove(a):
 
 def cmd_ssh(a):
     get_target(a.name)
+    sys.stdout.flush()
     argv = ssh_base(a.name)
     if a.command:
         cmd = a.command[1:] if a.command[0] == "--" else a.command
@@ -554,7 +555,8 @@ def cmd_doctor(a):
     t = get_target(a.name)
     ok = True
     print(f"[1/3] SSH 登录 {t['user']}@{t['host']} ...")
-    r = subprocess.run(ssh_base(a.name) + ["echo tna-ok"], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(ssh_base(a.name) + ["echo tna-ok"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60)
     if r.returncode == 0 and "tna-ok" in r.stdout:
         print("      通过")
     else:
@@ -653,7 +655,25 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def force_utf8_stdio() -> None:
+    """Make stdout/stderr UTF-8 so Chinese output never crashes.
+
+    On Windows a redirected stream (pipe, file, CI log, `$x = python ...`)
+    defaults to the ANSI code page (cp1252 on English systems), and printing
+    Chinese raises UnicodeEncodeError. A real console already uses UTF-16
+    via WriteConsoleW and reports utf-8, so it is left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        enc = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if enc != "utf8" and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None) -> int:
+    force_utf8_stdio()
     args = build_parser().parse_args(argv)
     try:
         args.func(args)

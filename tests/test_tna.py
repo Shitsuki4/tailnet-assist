@@ -1,5 +1,8 @@
 """Unit tests for controller/tna.py (stdlib unittest; runs on Windows, macOS, Linux)."""
+import io
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -161,6 +164,35 @@ class FingerprintTests(unittest.TestCase):
         fp = tna.key_fingerprint(HOSTKEY)
         self.assertTrue(fp.startswith("SHA256:"))
         self.assertEqual(len(fp), 7 + 43)
+
+
+class Utf8OutputTests(unittest.TestCase):
+    """Chinese output must not crash on a non-UTF-8 stream (Windows CI / English console pipes)."""
+
+    def test_force_utf8_on_cp1252_stream(self):
+        buf = io.BytesIO()
+        fake = io.TextIOWrapper(buf, encoding="cp1252")
+        old = sys.stdout
+        sys.stdout = fake
+        try:
+            tna.force_utf8_stdio()
+            print("已生成专用密钥")
+            sys.stdout.flush()
+        finally:
+            sys.stdout = old
+        self.assertEqual(buf.getvalue().decode("utf-8").strip(), "已生成专用密钥")
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "needs ssh-keygen")
+    def test_init_with_cp1252_pipe(self):
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, TNA_HOME=d, PYTHONIOENCODING="cp1252")
+            env.pop("PYTHONUTF8", None)
+            r = subprocess.run([sys.executable, str(Path(tna.__file__)), "init"], env=env,
+                               capture_output=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
+            out = r.stdout.decode("utf-8")
+            self.assertIn("已生成专用密钥", out)
+            self.assertIn("SHA256:", out)
 
 
 if __name__ == "__main__":
